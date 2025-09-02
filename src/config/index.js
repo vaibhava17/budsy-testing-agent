@@ -36,7 +36,7 @@ export const config = {
     webCapabilities: {
       platformName: 'Desktop',
       browserName: process.env.DEFAULT_BROWSER || 'chrome',
-      'appium:automationName': 'Gecko', // For Firefox or 'Chromium' for Chrome
+      'appium:automationName': (process.env.DEFAULT_BROWSER || 'chrome') === 'firefox' ? 'Gecko' : 'Chromium',
       'appium:newCommandTimeout': 300,
       'goog:chromeOptions': {
         args: [
@@ -44,6 +44,10 @@ export const config = {
           '--disable-features=VizDisplayCompositor',
           '--no-sandbox',
           '--disable-gpu',
+          '--disable-dev-shm-usage',
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-renderer-backgrounding',
           `--window-size=${process.env.BROWSER_WINDOW_WIDTH || 1280},${process.env.BROWSER_WINDOW_HEIGHT || 720}`
         ]
       }

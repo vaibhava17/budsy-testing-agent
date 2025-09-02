@@ -264,10 +264,13 @@ Manages session-wide context data.
 ## Advanced Features
 
 ### Email Input Enhancements
-- **Field Clearing** - Multiple clearing methods (triple-click, Ctrl+A, selection)
-- **Input Validation** - Email format verification
-- **Progress Verification** - Typing progress confirmation
-- **Error Recovery** - Comprehensive error handling
+- **Advanced Coordinate Validation** - Enhanced validation with safety zone checking
+- **Progressive Click Strategies** - Multiple targeting approaches (precise, offset, center)
+- **Field Clearing** - Multiple clearing methods (triple-click, Ctrl+A, selection, backspace)
+- **Input Validation** - Email format verification and typing progress confirmation
+- **Enhanced Error Recovery** - Comprehensive error handling with attempt-specific reporting
+- **LLM Backend Integration** - Debugging context for coordinate source and confidence
+- **Multi-attempt Logic** - Up to 3 attempts with different coordinate strategies
 
 ### Precision Targeting
 - **Sub-pixel Accuracy** - Enhanced pointer precision

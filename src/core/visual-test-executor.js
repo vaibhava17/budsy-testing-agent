@@ -511,13 +511,25 @@ class VisualTestExecutor {
         const requestStartTime = Date.now();
         this.logger.info('VISUAL-EXECUTOR', '⏳ AI request in progress...', { step: stepNumber });
         
-        // Prepare enhanced context for AI
+        // Prepare enhanced context for AI with attempt-specific improvements
         const enhancedContext = {
           stepNumber: stepNumber,
           formContext: this._detectFormContext(actionStep),
           pageContext: this._detectPageContext(actionStep),
           elementHints: this._buildElementHints(actionStep),
-          previousAttempts: this._getPreviousAttempts(stepNumber, attempt)
+          previousAttempts: this._getPreviousAttempts(stepNumber, attempt),
+          attemptNumber: attempt,
+          confidenceThreshold: Math.max(0.5, 0.8 - (attempt - 1) * 0.1), // Lower threshold on retries
+          // Pass viewport info for better coordinate calculation
+          viewportInfo: await this.driver.getViewportInfo(),
+          // Request fallback coordinates for retry scenarios
+          requestFallbackCoordinates: attempt > 1,
+          // Enhanced email detection context
+          enhancedEmailDetection: actionStep.description.toLowerCase().includes('email'),
+          // Previous failure reasons for learning
+          previousFailures: attempt > 1 ? [`Attempt ${attempt - 1} failed at coordinates`] : [],
+          // Prefer center targeting on retries for better reliability
+          preferCenterTargeting: attempt > 1
         };
 
         const aiGuidance = await this.aiClient.getVisualActionGuidance(
@@ -534,7 +546,13 @@ class VisualTestExecutor {
           confidence: aiGuidance.confidence,
           coordinates: aiGuidance.coordinates,
           elementType: aiGuidance.element_info?.element_type,
-          reasoning: aiGuidance.reasoning?.substring(0, 150) + (aiGuidance.reasoning?.length > 150 ? '...' : '')
+          reasoning: aiGuidance.reasoning?.substring(0, 150) + (aiGuidance.reasoning?.length > 150 ? '...' : ''),
+          // Enhanced debugging info
+          usingFallback: aiGuidance.usingFallback || false,
+          coordinateValidation: aiGuidance.coordinateValidation?.isValid || 'unknown',
+          fallbackOptions: aiGuidance.fallbackCoordinates?.length || 0,
+          boundingBox: aiGuidance.element_info?.bounding_box,
+          textContent: aiGuidance.element_info?.text_content?.substring(0, 30)
         });
 
         if (!aiGuidance.success) {

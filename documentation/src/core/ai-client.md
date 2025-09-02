@@ -103,7 +103,10 @@ Provides AI-guided coordinate-based actions from screenshot analysis.
   element_info: {
     element_type: string,
     description: string,
-    bounding_box: {left, top, right, bottom}
+    bounding_box: {left, top, right, bottom},
+    is_visible: boolean,
+    is_clickable: boolean,
+    text_content: string
   },
   confidence: number,
   reasoning: string,
@@ -111,7 +114,17 @@ Provides AI-guided coordinate-based actions from screenshot analysis.
   input_value: string,        // For type actions
   scroll_direction: string,   // For scroll actions
   wait_condition: string,     // For wait actions
-  error: string
+  error: string,
+  // Enhanced debugging features
+  coordinateValidation: {
+    isValid: boolean,
+    reason: string,
+    safeZone: object
+  },
+  fallbackCoordinates: array, // Alternative coordinates for retry
+  usingFallback: boolean,     // Whether fallback coordinates were used
+  requestDuration: string,    // Request processing time
+  rawResponse: object         // Complete backend response
 }
 ```
 
@@ -185,11 +198,14 @@ Retrieves AI service information and capabilities.
 - Handles and logs error responses with detailed information
 - Provides structured error data for debugging
 
-## Error Handling
-- Comprehensive error catching with detailed logging
-- Structured error responses with context information
-- Automatic retry logic for failed requests
-- Timeout handling for long-running operations
+## Error Handling & Validation
+- **Comprehensive error catching** with detailed logging and context
+- **Coordinate validation** against screen bounds and safety zones
+- **Fallback coordinate generation** for retry scenarios  
+- **Enhanced debugging** with request/response timing and validation
+- **Automatic retry logic** with progressive confidence thresholds
+- **Timeout handling** for long-running operations
+- **LLM backend integration** with enhanced context and error reporting
 
 ## Logging Integration
 - Detailed request/response logging
@@ -208,6 +224,27 @@ All endpoints are configurable via `config.backend.endpoints`:
 - **Session Start:** `/llm/ui-verification/start-session`
 - **Iterative Feedback:** `/llm/ui-verification/iterative-feedback`
 - **Health Check:** `/llm/ui-verification/health`
+
+## LLM Backend Integration Improvements
+
+### Enhanced Request Context
+- **Attempt-specific data** for progressive retry logic
+- **Viewport information** for accurate coordinate calculation
+- **Previous failure analysis** for learning from errors
+- **Enhanced email detection** with specialized context
+- **Confidence threshold adaptation** based on retry attempts
+
+### Coordinate Validation & Fallbacks
+- **Safety zone validation** (15px margins, 60px top for browser toolbar)
+- **Automatic coordinate adjustment** with confidence reduction
+- **Fallback coordinate generation** using bounding box and common patterns
+- **Progressive targeting strategies** (center, offset, common positions)
+
+### Debugging Enhancements
+- **Comprehensive error logging** with backend response analysis
+- **Request/response timing** and payload size monitoring
+- **Coordinate validation reporting** with specific failure reasons
+- **Alternative action analysis** when primary actions fail
 
 ## Usage Patterns
 

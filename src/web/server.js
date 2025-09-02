@@ -737,7 +737,7 @@ class BudsyWebServer {
     try {
       // Initialize for the target URL
       if (testSession.url) {
-        await executor.navigateToUrl(testSession.url);
+        await executor.driver.navigateTo(testSession.url);
         await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for page load
       }
 
@@ -747,14 +747,14 @@ class BudsyWebServer {
         
         // Step 1: Take screenshot and get AI action
         webLogger.info('AI', '📸 Taking screenshot and getting AI action...');
-        const screenshot = await executor.takeScreenshot();
-        const screenshotBase64 = screenshot.toString('base64');
+        const screenshot = await executor.driver.takeScreenshot();
+        const screenshotBase64 = screenshot.base64;
         
         // Set web logger for AI client
         aiClient.webLogger = webLogger;
         
         const aiResponse = await aiClient.getVisualActionGuidance(
-          screenshotBase64, 
+          screenshot, 
           testSession.instruction,
           { width: 1280, height: 720 }
         );
@@ -773,7 +773,7 @@ class BudsyWebServer {
         let actionError = null;
         
         try {
-          await executor.performAction(aiResponse);
+          await executor.driver.executeActionWithLogging(aiResponse);
           actionSuccess = true;
           webLogger.success('APPIUM', '✅ Action executed successfully');
         } catch (error) {
@@ -785,8 +785,8 @@ class BudsyWebServer {
         
         // Step 3: Take screenshot after action and get feedback
         await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for UI to update
-        const afterScreenshot = await executor.takeScreenshot();
-        const afterScreenshotBase64 = afterScreenshot.toString('base64');
+        const afterScreenshot = await executor.driver.takeScreenshot();
+        const afterScreenshotBase64 = afterScreenshot.base64;
         
         webLogger.info('AI', '🔄 Getting AI feedback on action results...');
         
@@ -809,7 +809,7 @@ class BudsyWebServer {
         
         const feedbackResponse = await aiClient.processIterativeFeedback(
           testSession.instruction,
-          afterScreenshotBase64,
+          afterScreenshot,
           previousAction,
           appiumLogs,
           stepCount,

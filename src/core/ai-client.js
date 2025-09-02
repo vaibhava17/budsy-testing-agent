@@ -195,11 +195,30 @@ class AIClient {
     });
 
     try {
+      // Enhanced request data with debugging information
       const requestData = {
         screenshot_base64: screenshotBase64,
         instruction: instruction,
         screen_size: screenSize,
-        confidence_threshold: options.confidenceThreshold || 0.8
+        confidence_threshold: options.confidenceThreshold || 0.7, // Lower threshold for better success rate
+        // Enhanced debugging context
+        context: {
+          attempt_number: options.attemptNumber || 1,
+          previous_failures: options.previousFailures || [],
+          element_hints: options.elementHints || [],
+          page_context: options.pageContext || 'unknown',
+          form_context: options.formContext || 'unknown',
+          coordinate_precision: 'sub_pixel',
+          prefer_center_targeting: options.preferCenterTargeting || false,
+          // Add viewport information for better coordinate calculation
+          viewport_info: options.viewportInfo || null,
+          // Request fallback coordinates
+          request_fallback_coordinates: true,
+          // Enhanced email detection
+          enhanced_email_detection: instruction.toLowerCase().includes('email'),
+          // Request alternative actions for retry scenarios
+          request_alternatives: true
+        }
       };
 
       this.logger.info('AI-CLIENT', '📤 Sending visual action request to AI backend', {
@@ -234,10 +253,40 @@ class AIClient {
         elementDescription: result.element_info?.description?.substring(0, 100),
         reasoning: result.reasoning?.substring(0, 200) + (result.reasoning?.length > 200 ? '...' : ''),
         duration: `${requestDuration}ms`,
-        responseSize: `${Math.round(JSON.stringify(result).length / 1024)}KB`
+        responseSize: `${Math.round(JSON.stringify(result).length / 1024)}KB`,
+        // Enhanced debugging information
+        boundingBox: result.element_info?.bounding_box,
+        isVisible: result.element_info?.is_visible,
+        isClickable: result.element_info?.is_clickable,
+        textContent: result.element_info?.text_content?.substring(0, 50),
+        alternativeCount: result.alternative_actions?.length || 0,
+        coordinateAdjustments: result.coordinate_adjustments || 'none'
       });
 
-      return {
+      // Enhanced validation and error handling
+      if (result.success && result.confidence < 0.6) {
+        this.logger.warn('AI-CLIENT', '⚠️ Low confidence AI response, may need retry', {
+          confidence: result.confidence,
+          threshold: 0.6,
+          reasoning: result.reasoning?.substring(0, 100)
+        });
+      }
+
+      // Log coordinate validation issues
+      if (result.coordinates && screenSize) {
+        const { x, y } = result.coordinates;
+        const { width, height } = screenSize;
+        if (x < 15 || y < 60 || x > width - 15 || y > height - 15) {
+          this.logger.warn('AI-CLIENT', '⚠️ Coordinates may be outside safe zone', {
+            coordinates: { x, y },
+            screenSize: { width, height },
+            safeZone: { minX: 15, minY: 60, maxX: width - 15, maxY: height - 15 }
+          });
+        }
+      }
+
+      // Enhanced result processing with fallback coordinates
+      const enhancedResult = {
         success: result.success,
         // Provide both formats for backward compatibility
         action_type: result.action_type,
@@ -255,8 +304,30 @@ class AIClient {
         scrollDirection: result.scroll_direction,
         wait_condition: result.wait_condition,
         waitCondition: result.wait_condition,
-        error: result.error
+        error: result.error,
+        // Enhanced debugging information
+        rawResponse: result,
+        requestDuration: `${requestDuration}ms`,
+        coordinateValidation: this._validateAICoordinates(result, screenSize),
+        // Add fallback coordinates for retry scenarios
+        fallbackCoordinates: this._generateFallbackCoordinates(result, screenSize, instruction)
       };
+
+      // If primary coordinates failed validation, try to use fallback
+      if (!enhancedResult.coordinateValidation.isValid && enhancedResult.fallbackCoordinates.length > 0) {
+        this.logger.info('AI-CLIENT', '🔄 Using fallback coordinates due to validation failure', {
+          originalCoords: result.coordinates,
+          fallbackOptions: enhancedResult.fallbackCoordinates.length,
+          reason: enhancedResult.coordinateValidation.reason
+        });
+        
+        // Use the best fallback coordinate
+        enhancedResult.coordinates = enhancedResult.fallbackCoordinates[0];
+        enhancedResult.confidence = Math.max(0.5, enhancedResult.confidence - 0.1); // Reduce confidence slightly
+        enhancedResult.usingFallback = true;
+      }
+
+      return enhancedResult;
 
     } catch (error) {
       this.logger.aiResponse(config.backend.endpoints.visualAction, false, {
@@ -441,6 +512,110 @@ class AIClient {
       this.logger.error('AI-CLIENT', 'Failed to get service info', { error: error.message });
       throw error;
     }
+  }
+
+  /**
+   * Validate AI coordinates against screen bounds and safety zones
+   * @private
+   */
+  _validateAICoordinates(result, screenSize) {
+    if (!result.coordinates || !screenSize) {
+      return { isValid: false, reason: 'Missing coordinates or screen size' };
+    }
+
+    const { x, y } = result.coordinates;
+    const { width, height } = screenSize;
+
+    // Safety zones based on backend service logic
+    const safeZone = {
+      minX: 15,
+      minY: 60, // Browser toolbar area
+      maxX: width - 15,
+      maxY: height - 15
+    };
+
+    const issues = [];
+
+    if (x < safeZone.minX) issues.push(`X coordinate ${x} too close to left edge (min: ${safeZone.minX})`);
+    if (y < safeZone.minY) issues.push(`Y coordinate ${y} too close to top edge (min: ${safeZone.minY})`);
+    if (x > safeZone.maxX) issues.push(`X coordinate ${x} too close to right edge (max: ${safeZone.maxX})`);
+    if (y > safeZone.maxY) issues.push(`Y coordinate ${y} too close to bottom edge (max: ${safeZone.maxY})`);
+
+    // Check for extremely high or low coordinates that might indicate errors
+    if (x > width * 1.5) issues.push(`X coordinate ${x} suspiciously large (screen width: ${width})`);
+    if (y > height * 1.5) issues.push(`Y coordinate ${y} suspiciously large (screen height: ${height})`);
+    if (x < 0 || y < 0) issues.push(`Negative coordinates not allowed: (${x}, ${y})`);
+
+    return {
+      isValid: issues.length === 0,
+      issues,
+      reason: issues.join('; '),
+      safeZone,
+      coordinates: { x, y }
+    };
+  }
+
+  /**
+   * Generate fallback coordinates for retry scenarios
+   * @private
+   */
+  _generateFallbackCoordinates(result, screenSize, instruction) {
+    if (!screenSize) return [];
+
+    const { width, height } = screenSize;
+    const fallbacks = [];
+
+    // If we have bounding box information, generate alternative coordinates
+    if (result.element_info?.bounding_box) {
+      const bbox = result.element_info.bounding_box;
+      
+      // Center of bounding box
+      fallbacks.push({
+        x: Math.floor(bbox.left + bbox.width / 2),
+        y: Math.floor(bbox.top + bbox.height / 2),
+        reason: 'center_of_bounding_box'
+      });
+
+      // For email inputs, try 25% from left (as per backend logic)
+      if (instruction.toLowerCase().includes('email')) {
+        fallbacks.push({
+          x: Math.floor(bbox.left + bbox.width * 0.25),
+          y: Math.floor(bbox.top + bbox.height / 2),
+          reason: 'email_input_25_percent'
+        });
+      }
+
+      // Slightly offset coordinates for better targeting
+      fallbacks.push({
+        x: Math.floor(bbox.left + bbox.width * 0.4),
+        y: Math.floor(bbox.top + bbox.height * 0.6),
+        reason: 'offset_center'
+      });
+    }
+
+    // Common email field locations based on typical web patterns
+    if (instruction.toLowerCase().includes('email')) {
+      // Common email field positions on login forms
+      const commonEmailPositions = [
+        { x: Math.floor(width * 0.5), y: Math.floor(height * 0.4), reason: 'common_center_email' },
+        { x: Math.floor(width * 0.3), y: Math.floor(height * 0.35), reason: 'left_centered_email' },
+        { x: Math.floor(width * 0.5), y: Math.floor(height * 0.3), reason: 'upper_center_email' }
+      ];
+      
+      fallbacks.push(...commonEmailPositions);
+    }
+
+    // Filter fallbacks to ensure they're within safe bounds
+    const safeZone = { minX: 15, minY: 60, maxX: width - 15, maxY: height - 15 };
+    
+    return fallbacks
+      .filter(coord => 
+        coord.x >= safeZone.minX && 
+        coord.x <= safeZone.maxX && 
+        coord.y >= safeZone.minY && 
+        coord.y <= safeZone.maxY
+      )
+      .slice(0, 3); // Limit to top 3 fallback options
   }
 }
 

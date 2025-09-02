@@ -361,9 +361,17 @@ program
     console.log(chalk.green('\n🎉 Health check completed!'));
   });
 
-// Default command
+// Default command - run interactive mode if no arguments
 if (process.argv.length <= 2) {
-  program.parse(['node', 'budsy', 'test']);
+  try {
+    program.parse([process.argv[0], process.argv[1] || 'budsy', 'test']);
+  } catch (error) {
+    // Fallback to direct execution
+    cli.interactiveMode().catch(err => {
+      console.error(chalk.red(`Error: ${err.message}`));
+      process.exit(1);
+    });
+  }
 } else {
-  program.parse();
+  program.parse(process.argv);
 }

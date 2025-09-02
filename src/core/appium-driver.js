@@ -443,17 +443,50 @@ class AppiumDriverManager {
     const viewportInfo = await this.getViewportInfo();
     const validatedCoords = this._validateCoordinatesWithViewport(x, y, viewportInfo, options.boundingBox);
 
-    logger.info('DRIVER', `Typing email at coordinates: (${validatedCoords.x}, ${validatedCoords.y})`, { 
+    logger.info('DRIVER', `🔧 Enhanced email typing at coordinates: (${validatedCoords.x}, ${validatedCoords.y})`, { 
       email: email.substring(0, email.indexOf('@')) + '@***',
       originalCoords: { x, y },
       wasAdjusted: validatedCoords.wasAdjusted,
-      adjustmentReason: validatedCoords.adjustmentReason
+      adjustmentReason: validatedCoords.adjustmentReason,
+      attempt: options.attempt || 1,
+      maxAttempts: options.maxAttempts || 3,
+      boundingBox: options.boundingBox,
+      viewport: `${viewportInfo.viewport.width}x${viewportInfo.viewport.height}`
     });
     
     try {
-      // Multiple click attempts for better focus
-      for (let attempt = 1; attempt <= 3; attempt++) {
+      // Enhanced coordinate validation before proceeding
+      if (!validatedCoords || validatedCoords.x < 0 || validatedCoords.y < 0) {
+        throw new Error(`Invalid coordinates after validation: (${validatedCoords?.x || 'null'}, ${validatedCoords?.y || 'null'})`);
+      }
+
+      // Log coordinate safety check
+      const { viewport } = viewportInfo;
+      if (validatedCoords.x > viewport.width || validatedCoords.y > viewport.height) {
+        logger.warn('DRIVER', '⚠️ Coordinates outside viewport bounds', {
+          coordinates: validatedCoords,
+          viewport: { width: viewport.width, height: viewport.height }
+        });
+      }
+
+      // Multiple click attempts with progressive strategies
+      const clickStrategies = [
+        { name: 'precise_click', offsetX: 0, offsetY: 0 },
+        { name: 'center_offset', offsetX: 5, offsetY: 0 },
+        { name: 'lower_center', offsetX: 0, offsetY: 3 }
+      ];
+
+      for (let attempt = 1; attempt <= Math.min(3, clickStrategies.length); attempt++) {
+        const strategy = clickStrategies[attempt - 1];
+        const clickX = validatedCoords.x + strategy.offsetX;
+        const clickY = validatedCoords.y + strategy.offsetY;
+
         try {
+          logger.info('DRIVER', `📍 Email click attempt ${attempt} using ${strategy.name}`, {
+            coordinates: { x: clickX, y: clickY },
+            offset: { x: strategy.offsetX, y: strategy.offsetY }
+          });
+
           // Advanced input element detection with multiple strategies
           const inputElement = await this.driver.execute((x, y) => {
             // Strategy 1: Direct element detection
@@ -805,13 +838,32 @@ class AppiumDriverManager {
         timestamp: new Date().toISOString()
       };
       
-      logger.error('DRIVER', `Email type at coordinates failed: (${validatedCoords.x}, ${validatedCoords.y})`, errorDetails);
+      logger.error('DRIVER', `💥 Email type at coordinates failed after all attempts: (${validatedCoords.x}, ${validatedCoords.y})`, errorDetails);
       
-      // Create a more descriptive error for upstream handling
-      const enhancedError = new Error(`Email input failed at (${validatedCoords.x}, ${validatedCoords.y}): ${error.message}`);
+      // Enhanced error reporting with all attempt details
+      const allAttemptErrors = this.attemptErrors || [];
+      const enhancedError = new Error(
+        `Email input failed at (${validatedCoords.x}, ${validatedCoords.y}) after ${allAttemptErrors.length || 1} attempts: ${error.message}`
+      );
       enhancedError.originalError = error;
       enhancedError.coordinates = { x: validatedCoords.x, y: validatedCoords.y };
-      enhancedError.details = errorDetails;
+      enhancedError.details = {
+        ...errorDetails,
+        allAttempts: allAttemptErrors,
+        totalAttempts: allAttemptErrors.length || 1,
+        coordinateValidation: validatedCoords.wasAdjusted ? 'adjusted' : 'original',
+        adjustmentReason: validatedCoords.adjustmentReason,
+        // Add LLM backend debugging info
+        llmBackendContext: {
+          coordinateSource: 'AI_LLM_Backend',
+          expectedElementType: 'email_input',
+          detectionMethod: 'screenshot_analysis',
+          confidenceRequired: '>= 0.7'
+        }
+      };
+      
+      // Clean up attempt errors for next call
+      this.attemptErrors = [];
       
       throw enhancedError;
     }
@@ -1662,7 +1714,7 @@ class AppiumDriverManager {
           break;
 
         case 'scroll':
-          await this.scrollPage(action.scroll_direction || 'down', 3);
+          await this.scroll(action.scroll_direction || 'down', 300);
           elementFound = true;
           success = true;
           break;

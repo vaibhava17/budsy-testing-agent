@@ -63,7 +63,7 @@ app.use(express.static(path.join(__dirname, 'static')));        // Static file s
 ```
 
 ### Static File Serving
-Serves web interface files from `src/web/static/` directory.
+Serves web interface files from `src/web/static/` directory including the main HTML interface for AI-guided testing.
 
 ## REST API Endpoints
 
